@@ -170,6 +170,8 @@ body {
   background: var(--accent);
   animation: drive-pulse 1s ease-in-out infinite;
 }
+.btn-drive[data-status="paused"] { color: var(--text-dim); }
+.btn-drive[data-status="paused"] .drive-dot { background: var(--text-faint); }
 .btn-drive[data-status="error"] { color: var(--danger); }
 .btn-drive[data-status="error"] .drive-dot { background: var(--danger); }
 
@@ -223,6 +225,62 @@ body {
 .drive-state.is-error { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
 .drive-state b { color: var(--text); }
 .drive-state.is-error b { color: var(--danger); }
+
+/* shared-tree banner */
+
+.shared-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--accent);
+  z-index: 25;
+}
+.shared-banner[hidden] { display: none; }
+.shared-banner.is-dirty { background: var(--danger-soft); border-bottom-color: var(--danger); }
+.shared-icon { flex: 0 0 auto; font-size: 15px; line-height: 1; }
+.shared-text { flex: 1 1 auto; min-width: 0; }
+.shared-text b { font-weight: 650; }
+.shared-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.shared-actions .btn { height: 28px; font-size: 12.5px; padding: 0 10px; }
+
+/* share link dialog */
+
+.share-url {
+  width: 100%;
+  min-height: 96px;
+  font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
+  resize: vertical;
+}
+.share-size {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 9px 11px;
+  font-size: 12.5px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.share-size b { color: var(--text); font-variant-numeric: tabular-nums; }
+.share-size.level-warn { background: #fff8e6; border-color: #e0a84a; color: #7a5713; }
+.share-size.level-warn b { color: #7a5713; }
+.share-size.level-risk { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+.share-size.level-risk b { color: var(--danger); }
+
+[data-theme="dark"] .share-size.level-warn { background: #3a2f16; border-color: #a5802f; color: #e8c98a; }
+[data-theme="dark"] .share-size.level-warn b { color: #e8c98a; }
+
+@media (max-width: 720px) {
+  .shared-banner { flex-wrap: wrap; }
+  .shared-text { flex-basis: 100%; }
+}
 
 /* ------------------------------ layout ------------------------------ */
 

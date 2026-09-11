@@ -71,6 +71,7 @@
     _listeners: [],
     _suspend: 0,
     _batching: false,
+    persistPaused: false,
 
     /* --- subscriptions --- */
 
@@ -115,6 +116,11 @@
       }
     },
 
+    clearHistory: function () {
+      this._undo.length = 0;
+      this._redo.length = 0;
+    },
+
     canUndo: function () { return this._undo.length > 0; },
     canRedo: function () { return this._redo.length > 0; },
 
@@ -137,6 +143,9 @@
     /* --- persistence --- */
 
     persist: function () {
+      // A tree opened from a share link is only being viewed, so it must not
+      // overwrite whatever this browser already has saved.
+      if (this.persistPaused) return;
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
       } catch (err) {

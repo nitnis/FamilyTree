@@ -41,7 +41,7 @@
       'btnDrive', 'driveLabel', 'btnShare',
       'btnViewer', 'btnExitViewer', 'viewerTitle', 'viewerTitleName', 'viewerTitleMeta',
       'fileInput', 'sidebar', 'search', 'peopleList', 'peopleCount', 'canvasWrap',
-      'tree', 'emptyState', 'btnZoomIn', 'btnZoomOut', 'btnZoomReset', 'inspector',
+      'tree', 'emptyState', 'btnZoomIn', 'btnZoomOut', 'btnZoomReset', 'btnZoomFit', 'inspector',
       'inspectorTitle', 'inspectorBody', 'btnCloseInspector', 'contextMenu', 'modal', 'modalTitle',
       'modalBody', 'modalFoot', 'modalClose', 'toast'
     ].forEach(function (id) {
@@ -72,7 +72,7 @@
 
     el.treeTitle.value = Store.state.title;
     refreshAll();
-    if (Store.state.people.length) R.fit(Store.state);
+    if (Store.state.people.length) R.frame(Store.state);
     schedule();
 
     var shared = Share.fromLocation();
@@ -1500,8 +1500,11 @@
       // Enter first: hiding the toolbar and sidebar grows the canvas, and a
       // fit measured before that leaves the tree off to one side.
       enterViewer();
-      R.fit(Store.state);
+      var zoomedIn = R.frame(Store.state);
       schedule();
+      if (zoomedIn) {
+        toast('Opened at the top of the tree — use ⤢ to see all of it', 4200);
+      }
       return true;
     }, function (err) {
       clearShareHash();
@@ -1664,6 +1667,7 @@
     on('btnZoomIn', 'click', function () { R.zoomAt(R.width / 2, R.height / 2, 1.2); schedule(); });
     on('btnZoomOut', 'click', function () { R.zoomAt(R.width / 2, R.height / 2, 1 / 1.2); schedule(); });
     on('btnZoomReset', 'click', function () { R.setZoom(1); schedule(); });
+    on('btnZoomFit', 'click', doFit);
 
     on('search', 'input', function () {
       ui.query = el.search.value;

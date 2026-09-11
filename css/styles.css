@@ -390,6 +390,9 @@ textarea { resize: vertical; min-height: 62px; }
   box-shadow: var(--shadow);
 }
 
+/* The toolbar already carries Fit, so this one is for the viewer. */
+body:not(.is-viewer) .zoom-fit { display: none; }
+
 .legend {
   position: absolute;
   left: 14px;

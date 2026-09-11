@@ -37,6 +37,7 @@
     <button id="btnExport" class="btn btn-ghost" title="Download tree as .json">Export</button>
     <button id="btnPng" class="btn btn-ghost" title="Download tree as .png">PNG</button>
     <button id="btnShare" class="btn btn-ghost" title="Create a link containing this whole tree">Share link</button>
+    <button id="btnViewer" class="btn btn-ghost" title="Full screen, view only (V)">Full screen</button>
     <button id="btnDrive" class="btn btn-ghost btn-drive" title="Keep this tree in a Google Drive file">
       <span class="drive-dot" aria-hidden="true"></span><span id="driveLabel">Link to Drive</span>
     </button>
@@ -45,15 +46,6 @@
   </div>
   <input type="file" id="fileInput" accept="application/json,.json" hidden>
 </header>
-
-<div class="shared-banner" id="sharedBanner" hidden>
-  <span class="shared-icon" aria-hidden="true">🔗</span>
-  <span class="shared-text" id="sharedText"></span>
-  <span class="shared-actions">
-    <button class="btn btn-primary" id="btnKeepShared">Keep a copy</button>
-    <button class="btn" id="btnDiscardShared">Discard</button>
-  </span>
-</div>
 
 <main class="workspace">
 
@@ -72,6 +64,12 @@
 
   <div class="canvas-wrap" id="canvasWrap">
     <canvas id="tree" tabindex="0" aria-label="Family tree canvas"></canvas>
+
+    <div class="viewer-title" id="viewerTitle" hidden>
+      <span class="vt-name" id="viewerTitleName"></span>
+      <span class="vt-meta" id="viewerTitleMeta"></span>
+    </div>
+    <button class="viewer-exit" id="btnExitViewer" hidden aria-label="Leave full screen">✕</button>
 
     <div class="empty-state" id="emptyState">
       <div class="empty-card">

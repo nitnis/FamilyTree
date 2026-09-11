@@ -44,6 +44,8 @@ left off. Use **Export** for a real backup.
 - **Google Drive sync** — link a Drive file once and every edit is saved back to
   it, so the tree follows you between browsers and devices. See below.
 - **Share links** — pack the whole tree into a URL. No hosting, no account.
+- **Full screen view** — a read-only viewer with no toolbar or sidebar, which is
+  how a shared link opens.
 
 ## Controls
 
@@ -93,17 +95,32 @@ ones — the payload's first character records which encoding was used.
 
 ### Opening one is safe
 
-A share link is a snapshot of someone else's tree, so **opening one writes
+A share link opens in the full screen viewer (below), so **opening one writes
 nothing**. Your own saved tree stays exactly as it was, and a linked Drive file
-is left alone — the Drive button greys out while a shared tree is on screen. A
-banner offers:
+is left alone.
 
-- **Keep a copy** — adopt it as this browser's tree and resume saving. If a
-  Drive file is linked, it says first that the file will be replaced.
+Pressing **✕** asks what to do with it, since it is not saved anywhere yet:
+
+- **Edit this tree** — adopt it as this browser's tree, leave the viewer and
+  resume saving. If a Drive file is linked, it says first that the file will be
+  replaced.
 - **Discard** — go back to the tree this browser already had.
+- **Cancel** — carry on looking.
 
-Editing a shared tree is allowed and still saves nothing; the banner turns red
-to say so until you keep it.
+## Full screen view
+
+**Full screen** (or `V`) hides the toolbar and sidebar and gives the canvas the
+whole page. Pan, zoom and fit all work, and clicking a person opens their card
+as a floating panel — the same details as the editor, minus every control that
+would change something. Relatives stay clickable, so a tree can be explored by
+walking from person to person.
+
+Nothing in this mode edits the tree: cards cannot be dragged, double-click and
+right-click do nothing, and the editing keys are ignored. Dragging a card pans
+instead, which is what a drag means when nothing can move.
+
+**✕** in the corner leaves, or `Escape` (once to close an open card, again to
+leave). A shared tree is asked about on the way out, as above.
 
 ## Saving to Google Drive
 
@@ -220,6 +237,12 @@ Entering the shared view pauses `Store.persist()` rather than trying to undo a
 write afterwards. It also cancels any queued Drive save, because that save holds
 a *getter* rather than a snapshot and would otherwise upload the shared tree to
 someone else's file when its timer fired.
+
+Viewer mode is a `body.is-viewer` class plus a `ui.viewer` flag that every
+editing path checks. Because a shared tree always opens in the viewer, and the
+viewer permits no edits, "shared but edited" cannot occur — the banner that
+used to cover that state was unreachable once the viewer existed and has been
+removed, with the viewer's title chip reporting the same thing.
 
 ### Drive sync
 

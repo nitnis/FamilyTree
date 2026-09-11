@@ -46,6 +46,7 @@ left off. Use **Export** for a real backup.
 - **Share links** — pack the whole tree into a URL. No hosting, no account.
 - **Full screen view** — a read-only viewer with no toolbar or sidebar, which is
   how a shared link opens.
+- **Focus view** — read one person's corner of a large tree instead of all of it.
 
 ## Controls
 
@@ -106,6 +107,38 @@ Pressing **✕** asks what to do with it, since it is not saved anywhere yet:
   replaced.
 - **Discard** — go back to the tree this browser already had.
 - **Cancel** — carry on looking.
+
+## Focus view
+
+**Focus on this person** — on the details card, in the right-click menu, or `Z`
+— narrows the canvas to that person's corner of the tree. A bar across the top
+names them, reports how much of the tree is showing (`14 of 77`), and offers
+**1 / 2 / 3 / All** for how far to reach:
+
+| Depth | Reaches |
+| --- | --- |
+| 1 | Parents, partners, children |
+| 2 | Also grandparents, grandchildren, siblings |
+| 3 | Also great-grandparents, aunts, uncles, nieces, nephews |
+| All | Everyone connected |
+
+Steps are counted along parent and child links only. Partners come along so no
+couple is drawn half-missing, but they are not walked *through* — otherwise
+every marriage would drag in another whole family and the radius would mean
+nothing.
+
+Opening a focus picks the depth by what actually fits: it starts at 2 and
+narrows if the result would be too small to read. Focusing on a leaf can afford
+two generations either way; focusing on the oldest ancestor cannot, because
+their descendants are most of the tree. On the 77-person tree above, focusing
+on the patriarch at a fixed depth of 2 gives 50 people at 17% zoom, while the
+chosen depth of 1 gives 14 at 52%. The buttons always override.
+
+Focusing is a view, not an edit: the excerpt is a separate tree of copies
+swapped in for the real one, so every view — canvas, sidebar, search, details —
+works on it unchanged while the real tree is held aside untouched and saving is
+paused. Editing is off until **Show all**, which restores the tree exactly,
+undo history included.
 
 ## Full screen view
 
@@ -185,6 +218,7 @@ works without a server.
 | `js/store.js` | The data model, mutations, undo history, `localStorage` |
 | `js/drive.js` | Google Drive linking, OAuth tokens, debounced save/load |
 | `js/share.js` | Packing a tree into a URL fragment and reading it back |
+| `js/focus.js` | Selecting one person's corner of a tree as a standalone excerpt |
 | `js/layout.js` | Generation assignment, auto-arrangement, edge routing |
 | `js/render.js` | Canvas painting, viewport (pan/zoom), hit testing, PNG export |
 | `js/app.js` | DOM: toolbar, sidebar, inspector, modals, pointer and key handling |

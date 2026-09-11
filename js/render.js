@@ -63,6 +63,7 @@
     themeName: 'light',
     view: { x: 0, y: 0, k: 1 },
     MIN_K: 0.02,
+    READABLE_K: 0.6,        // below this a card's text is too small to read
     MAX_K: 3,
 
     attach: function (canvas) {
@@ -148,7 +149,7 @@
      */
     frame: function (state, minReadable) {
       if (!state.people.length) return false;
-      var floor = minReadable || 0.6;
+      var floor = minReadable || this.READABLE_K;
       var b = window.FT.Layout.bounds(state);
       var pad = 60;
       var fitK = Math.min((this.width - pad * 2) / Math.max(1, b.w),

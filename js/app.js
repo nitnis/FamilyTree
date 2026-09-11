@@ -25,8 +25,14 @@
   };
   var geo = { nodes: {}, links: [], bounds: null };
   var frame = null;
+  var missingElements = [];
 
   /* =========================== bootstrap =========================== */
+
+  /** Bind a handler only if the element is actually on the page. */
+  function on(name, event, handler) {
+    if (el[name]) el[name].addEventListener(event, handler);
+  }
 
   function init() {
     [
@@ -38,7 +44,10 @@
       'tree', 'emptyState', 'btnZoomIn', 'btnZoomOut', 'btnZoomReset', 'inspector',
       'inspectorTitle', 'inspectorBody', 'btnCloseInspector', 'contextMenu', 'modal', 'modalTitle',
       'modalBody', 'modalFoot', 'modalClose', 'toast'
-    ].forEach(function (id) { el[id] = document.getElementById(id); });
+    ].forEach(function (id) {
+      el[id] = document.getElementById(id);
+      if (!el[id]) missingElements.push(id);
+    });
 
     ui.theme = readStoredTheme();
     applyTheme(ui.theme);
@@ -69,6 +78,31 @@
     var shared = Share.fromLocation();
     if (shared) openSharedPayload(shared);
     else if (Share.hasLink()) clearShareHash();   // an empty #tree= is just noise
+
+    // A page whose HTML and scripts came from different versions — a stale
+    // cache, usually — used to die on the first missing element. Now it runs
+    // and says what happened.
+    if (missingElements.length) reportStalePage('Missing: ' + missingElements.join(', '));
+  }
+
+  /** Say plainly that the page is out of date rather than half-working. */
+  function reportStalePage(detail) {
+    if (window.console && window.console.warn) {
+      window.console.warn('Kinfolk: this page looks out of date. ' + detail);
+    }
+    if (document.getElementById('staleWarning')) return;
+    var bar = document.createElement('div');
+    bar.id = 'staleWarning';
+    bar.setAttribute('role', 'alert');
+    // The body is a flex column, so as its first child the bar pushes the
+    // app down instead of covering the toolbar.
+    bar.style.cssText = 'flex:0 0 auto;padding:10px 14px;' +
+      'font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
+      'color:#7a2012;background:#fee4e2;border-bottom:1px solid #b42318;text-align:center;';
+    bar.textContent = 'This page did not load completely — part of it is out of date. ' +
+      'Reload with Ctrl+Shift+R (\u2318\u21E7R on a Mac).';
+    var host = document.body || document.documentElement;
+    host.insertBefore(bar, host.firstChild);
   }
 
   function onStoreChange(state, reason) {
@@ -1462,10 +1496,12 @@
       if (!Store.state.people.some(function (p) { return p.x || p.y; })) {
         Layout.autoArrange(Store.state);
       }
+      Store.clearHistory();       // undo must not reach back past the share
+      // Enter first: hiding the toolbar and sidebar grows the canvas, and a
+      // fit measured before that leaves the tree off to one side.
+      enterViewer();
       R.fit(Store.state);
       schedule();
-      Store.clearHistory();       // undo must not reach back past the share
-      enterViewer();
       return true;
     }, function (err) {
       clearShareHash();
@@ -1607,44 +1643,44 @@
   /* ============================ toolbar ============================= */
 
   function bindToolbar() {
-    el.btnAddPerson.addEventListener('click', function () { addPersonAt(centerWorld()); });
-    el.btnArrange.addEventListener('click', doArrange);
-    el.btnFit.addEventListener('click', doFit);
-    el.btnUndo.addEventListener('click', function () { Store.undo(); });
-    el.btnRedo.addEventListener('click', function () { Store.redo(); });
-    el.btnSample.addEventListener('click', loadSample);
-    el.btnTheme.addEventListener('click', toggleTheme);
-    el.btnClear.addEventListener('click', confirmClear);
+    on('btnAddPerson', 'click', function () { addPersonAt(centerWorld()); });
+    on('btnArrange', 'click', doArrange);
+    on('btnFit', 'click', doFit);
+    on('btnUndo', 'click', function () { Store.undo(); });
+    on('btnRedo', 'click', function () { Store.redo(); });
+    on('btnSample', 'click', loadSample);
+    on('btnTheme', 'click', toggleTheme);
+    on('btnClear', 'click', confirmClear);
 
-    el.btnExport.addEventListener('click', exportJSON);
-    el.btnPng.addEventListener('click', exportPNG);
-    el.btnDrive.addEventListener('click', openDriveDialog);
-    el.btnShare.addEventListener('click', openShareDialog);
-    el.btnViewer.addEventListener('click', enterViewer);
-    el.btnExitViewer.addEventListener('click', leaveViewer);
-    el.btnImport.addEventListener('click', function () { el.fileInput.click(); });
-    el.fileInput.addEventListener('change', importJSON);
+    on('btnExport', 'click', exportJSON);
+    on('btnPng', 'click', exportPNG);
+    on('btnDrive', 'click', openDriveDialog);
+    on('btnShare', 'click', openShareDialog);
+    on('btnViewer', 'click', enterViewer);
+    on('btnExitViewer', 'click', leaveViewer);
+    on('btnImport', 'click', function () { el.fileInput.click(); });
+    on('fileInput', 'change', importJSON);
 
-    el.btnZoomIn.addEventListener('click', function () { R.zoomAt(R.width / 2, R.height / 2, 1.2); schedule(); });
-    el.btnZoomOut.addEventListener('click', function () { R.zoomAt(R.width / 2, R.height / 2, 1 / 1.2); schedule(); });
-    el.btnZoomReset.addEventListener('click', function () { R.setZoom(1); schedule(); });
+    on('btnZoomIn', 'click', function () { R.zoomAt(R.width / 2, R.height / 2, 1.2); schedule(); });
+    on('btnZoomOut', 'click', function () { R.zoomAt(R.width / 2, R.height / 2, 1 / 1.2); schedule(); });
+    on('btnZoomReset', 'click', function () { R.setZoom(1); schedule(); });
 
-    el.search.addEventListener('input', function () {
+    on('search', 'input', function () {
       ui.query = el.search.value;
       renderPeopleList();
       schedule();
     });
 
-    el.treeTitle.addEventListener('change', function () {
+    on('treeTitle', 'change', function () {
       Store.setTitle(el.treeTitle.value.trim() || 'My Family Tree');
     });
 
-    el.btnCloseInspector.addEventListener('click', function () {
+    on('btnCloseInspector', 'click', function () {
       el.inspector.classList.remove('is-open');
     });
 
-    el.modalClose.addEventListener('click', closeModal);
-    el.modal.addEventListener('mousedown', function (e) {
+    on('modalClose', 'click', closeModal);
+    on('modal', 'mousedown', function (e) {
       if (e.target === el.modal) closeModal();
     });
 
@@ -1938,9 +1974,18 @@
 
   /* ================================================================= */
 
+  function boot() {
+    try {
+      init();
+    } catch (err) {
+      reportStalePage(String((err && err.message) || err));
+      throw err;
+    }
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', boot);
   } else {
-    init();
+    boot();
   }
 })(window, document);

@@ -81,11 +81,19 @@
       var c = this.canvas;
       if (!c) return;
       var rect = c.getBoundingClientRect();
+      var prevW = this.width, prevH = this.height;
       this.dpr = window.devicePixelRatio || 1;
       this.width = Math.max(1, Math.round(rect.width));
       this.height = Math.max(1, Math.round(rect.height));
       c.width = Math.round(this.width * this.dpr);
       c.height = Math.round(this.height * this.dpr);
+
+      // Keep whatever was in the middle of the canvas in the middle, so
+      // hiding a panel or resizing the window does not slide the tree away.
+      if (prevW && prevH) {
+        this.view.x += (this.width - prevW) / 2;
+        this.view.y += (this.height - prevH) / 2;
+      }
     },
 
     /* ----------------------------- viewport ----------------------------- */

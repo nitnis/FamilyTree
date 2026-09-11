@@ -9,6 +9,7 @@
   var Store = FT.Store;
   var Drive = FT.Drive;
   var Share = FT.Share;
+  var Focus = FT.Focus;
   var Layout = FT.Layout;
   var R = FT.Renderer;
   var M = Layout.METRICS;
@@ -21,8 +22,14 @@
     theme: 'light',
     spaceDown: false,
     shared: false,       // viewing a tree that arrived in the URL
-    viewer: false        // full screen, read only
+    viewer: false,       // full screen, read only
+    focus: null          // { base, personId, depth, wasPaused } while focused
   };
+
+  /** True whenever the tree on screen must not be changed. */
+  function readOnly() {
+    return ui.viewer || !!ui.focus;
+  }
   var geo = { nodes: {}, links: [], bounds: null };
   var frame = null;
   var missingElements = [];
@@ -40,6 +47,7 @@
       'btnSample', 'btnImport', 'btnExport', 'btnPng', 'btnClear', 'btnTheme',
       'btnDrive', 'driveLabel', 'btnShare',
       'btnViewer', 'btnExitViewer', 'viewerTitle', 'viewerTitleName', 'viewerTitleMeta',
+      'focusBar', 'focusLabel', 'focusDepth', 'btnClearFocus',
       'fileInput', 'sidebar', 'search', 'peopleList', 'peopleCount', 'canvasWrap',
       'tree', 'emptyState', 'btnZoomIn', 'btnZoomOut', 'btnZoomReset', 'btnZoomFit', 'inspector',
       'inspectorTitle', 'inspectorBody', 'btnCloseInspector', 'contextMenu', 'modal', 'modalTitle',
@@ -113,7 +121,7 @@
     // queued, and Drive.schedule() debounces the burst into one upload.
     // A shared tree is only being viewed: it must not reach this browser's
     // storage or the linked Drive file until it is explicitly kept.
-    if (ui.shared) return;
+    if (ui.shared || ui.focus) return;
     if (Drive.isLinked() && reason !== 'drive-load') queueDriveSave();
   }
 
@@ -265,7 +273,7 @@
       el.inspectorTitle.textContent = 'Details';
       var note = document.createElement('p');
       note.className = 'empty-note';
-      note.textContent = ui.viewer
+      note.textContent = readOnly()
         ? 'Select a person on the canvas to see their details.'
         : 'Select a person on the canvas to see and edit their details.';
       el.inspectorBody.appendChild(note);
@@ -292,15 +300,26 @@
     head.appendChild(av); head.appendChild(box);
     el.inspectorBody.appendChild(head);
 
-    if (ui.viewer) {
+    var actions = document.createElement('div');
+    actions.className = 'rel-actions';
+    actions.style.cssText = 'display:grid;grid-template-columns:1fr;gap:6px;';
+    if (!readOnly()) {
+      actions.appendChild(button('Edit details', 'btn', function () { openPersonForm(p.id); }));
+    }
+    if (!ui.focus || ui.focus.personId !== p.id) {
+      actions.appendChild(button('Focus on this person', 'btn',
+        function () { enterFocus(p.id); }));
+    }
+    el.inspectorBody.appendChild(actions);
+
+    if (readOnly()) {
       var ro = document.createElement('p');
       ro.className = 'read-only-note';
-      ro.textContent = 'View only. Leave full screen to make changes.';
+      ro.style.marginTop = '8px';
+      ro.textContent = ui.focus
+        ? 'View only while focused. Press Show all to edit.'
+        : 'View only. Leave full screen to make changes.';
       el.inspectorBody.appendChild(ro);
-    } else {
-      var editBtn = button('Edit details', 'btn', function () { openPersonForm(p.id); });
-      editBtn.style.width = '100%';
-      el.inspectorBody.appendChild(editBtn);
     }
 
     // Quick facts
@@ -338,7 +357,7 @@
     }
 
     // Relationships
-    var editable = !ui.viewer;
+    var editable = !readOnly();
 
     el.inspectorBody.appendChild(sectionTitle('Parents'));
     relList(Store.parentsOf(p.id), null, editable ? function (parent) {
@@ -915,6 +934,7 @@
     showMenu(clientX, clientY, [
       { label: FT.fullName(p) },
       { text: 'Edit details…', run: function () { openPersonForm(id); } },
+      { text: 'Focus on this person', key: 'Z', run: function () { enterFocus(id); } },
       '-',
       { text: 'Add parent', run: function () { addParent(id); } },
       { text: 'Add partner', run: function () { addPartner(id); } },
@@ -966,7 +986,7 @@
 
       if (hit) {
         select(hit.id);
-        if (!ui.viewer) {
+        if (!readOnly()) {
           drag = { id: hit.id, dx: w.x - hit.x, dy: w.y - hit.y, moved: false };
           c.classList.add('is-dragging');
         } else {
@@ -1044,7 +1064,7 @@
     }, { passive: false });
 
     c.addEventListener('dblclick', function (e) {
-      if (ui.viewer) return;
+      if (readOnly()) return;
       var pt = localPoint(e);
       var w = R.screenToWorld(pt.x, pt.y);
       var hit = R.hitTest(geo, w.x, w.y);
@@ -1054,7 +1074,7 @@
 
     c.addEventListener('contextmenu', function (e) {
       e.preventDefault();
-      if (ui.viewer) return;
+      if (readOnly()) return;
       var pt = localPoint(e);
       var w = R.screenToWorld(pt.x, pt.y);
       var hit = R.hitTest(geo, w.x, w.y);
@@ -1148,7 +1168,7 @@
     var status = linked ? Drive.status : 'unlinked';
     // Nothing is saved while a shared tree is on screen, so the dot must not
     // promise a save that is never coming.
-    if (linked && ui.shared) status = 'paused';
+    if (linked && (ui.shared || ui.focus)) status = 'paused';
     var label = (DRIVE_LABELS[status] || DRIVE_LABELS.unlinked)(Drive.config || {});
 
     el.driveLabel.textContent = label;
@@ -1399,6 +1419,139 @@
 
 
 
+
+  /* ============================== focus ============================= */
+
+  /**
+   * Show one person's corner of the tree. The excerpt is a separate tree of
+   * copies, swapped in for Store.state so every existing view — canvas,
+   * sidebar, search, details — works on it unchanged. The real tree is held
+   * aside untouched, and saving is paused so an excerpt can never be written
+   * over it.
+   */
+  /** Would this excerpt fit on screen at a size its cards can be read at? */
+  function fitsReadably(state) {
+    var b = Layout.bounds(state);
+    var pad = 60;
+    return Math.min((R.width - pad * 2) / Math.max(1, b.w),
+                    (R.height - pad * 2) / Math.max(1, b.h)) >= R.READABLE_K;
+  }
+
+  /**
+   * The most context that still fits. Focusing on a leaf can afford several
+   * generations; focusing on the oldest ancestor cannot, because their
+   * descendants are most of the tree — one depth for both would make the
+   * first click useless on exactly the trees that need it.
+   */
+  function bestDepth(base, personId) {
+    var chosen = Focus.DEPTHS[0];
+    for (var i = 0; i < Focus.DEPTHS.length; i++) {
+      var d = Focus.DEPTHS[i];
+      // Only ever narrow from the default: going wider than asked would make
+      // focusing on a small tree a no-op.
+      if (d === Infinity || d > Focus.DEFAULT_DEPTH) break;
+      var excerpt = Focus.subtree(base, personId, d);
+      if (!excerpt || !excerpt.people.length) break;
+      if (i > 0 && !fitsReadably(excerpt)) break;   // deeper only grows
+      chosen = d;
+    }
+    return chosen;
+  }
+
+  function enterFocus(personId, depth) {
+    var base = ui.focus ? ui.focus.base : Store.state;
+    // An explicit depth comes from the bar's buttons and is always honoured.
+    var want = depth || bestDepth(base, personId);
+    var excerpt = Focus.subtree(base, personId, want);
+    if (!excerpt || !excerpt.people.length) {
+      toast('Could not focus on that person');
+      return;
+    }
+
+    if (!ui.focus) {
+      ui.focus = {
+        base: base, personId: personId, depth: want,
+        wasPaused: Store.persistPaused,
+        // The real tree's undo stack is held aside, not thrown away.
+        history: Store.detachHistory()
+      };
+      Store.persistPaused = true;
+    } else {
+      ui.focus.personId = personId;
+      ui.focus.depth = want;
+    }
+
+    Store.state = excerpt;
+    Store.clearHistory();          // undo must not reach across the swap
+    ui.selectedId = Store.person(personId) ? personId : null;
+    applyFocusView();
+  }
+
+  function setFocusDepth(depth) {
+    if (!ui.focus) return;
+    enterFocus(ui.focus.personId, depth);
+  }
+
+  /** Put the whole tree back exactly as it was. */
+  function clearFocus() {
+    if (!ui.focus) return;
+    var f = ui.focus;
+    Store.state = f.base;
+    Store.persistPaused = f.wasPaused;
+    ui.focus = null;
+    Store.attachHistory(f.history);
+    ui.selectedId = Store.person(f.personId) ? f.personId : null;
+    applyFocusView();
+  }
+
+  /** Repaint after swapping the tree in or out, without touching storage. */
+  function applyFocusView() {
+    refreshAll();
+    R.frame(Store.state);
+    schedule();
+    renderFocusBar();
+  }
+
+  function renderFocusBar() {
+    if (!ui.focus) {
+      el.focusBar.hidden = true;
+      return;
+    }
+    var person = Store.person(ui.focus.personId);
+    el.focusBar.hidden = false;
+
+    el.focusLabel.textContent = '';
+    // <bdi> isolates the name: without it a right-to-left name drags the
+    // count that follows it into the wrong order.
+    var name = document.createElement('bdi');
+    name.style.fontWeight = '650';
+    name.textContent = person ? FT.fullName(person) : 'Focused';
+    var count = document.createElement('span');
+    count.className = 'fb-count';
+    count.textContent = ' · ' + Store.state.people.length + ' of ' +
+      ui.focus.base.people.length + ' · view only';
+    el.focusLabel.appendChild(name);
+    el.focusLabel.appendChild(count);
+
+    el.focusDepth.textContent = '';
+    Focus.DEPTHS.forEach(function (d) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = d === Infinity ? 'All' : String(d);
+      b.title = depthTitle(d);
+      b.setAttribute('aria-pressed', String(d === ui.focus.depth));
+      b.addEventListener('click', function () { setFocusDepth(d); });
+      el.focusDepth.appendChild(b);
+    });
+  }
+
+  function depthTitle(d) {
+    if (d === 1) return 'Parents, partners and children';
+    if (d === 2) return 'Also grandparents, grandchildren and siblings';
+    if (d === 3) return 'Also great-grandparents, aunts, uncles, nieces and nephews';
+    return 'Everyone connected to this person';
+  }
+
   /* =========================== viewer mode ========================== */
 
   /**
@@ -1428,6 +1581,7 @@
 
   function exitViewer() {
     if (!ui.viewer) return;
+    if (ui.focus) clearFocus();
     ui.viewer = false;
     document.body.classList.remove('is-viewer');
     el.btnExitViewer.hidden = true;
@@ -1439,8 +1593,11 @@
 
   function renderViewerTitle() {
     if (!ui.viewer) return;
-    var n = Store.state.people.length;
-    el.viewerTitleName.textContent = Store.state.title || 'Family tree';
+    // While focused the store holds an excerpt, but the chip is about the
+    // tree that was opened — the focus bar reports the slice.
+    var whole = ui.focus ? ui.focus.base : Store.state;
+    var n = whole.people.length;
+    el.viewerTitleName.textContent = whole.title || 'Family tree';
     el.viewerTitleMeta.textContent = countPeople(n) +
       (ui.shared ? ' · shared with you · view only' : ' · view only');
   }
@@ -1483,6 +1640,7 @@
   /** Open a tree that arrived in the URL, without touching anything saved. */
   function openSharedPayload(payload) {
     return Share.decode(payload).then(function (data) {
+      if (ui.focus) clearFocus();
       // A Drive save already queued would serialise whatever is in the store
       // when its timer fires, which is about to become the shared tree — so
       // drop it. The local copy still holds those edits, and discarding the
@@ -1668,6 +1826,7 @@
     on('btnZoomOut', 'click', function () { R.zoomAt(R.width / 2, R.height / 2, 1 / 1.2); schedule(); });
     on('btnZoomReset', 'click', function () { R.setZoom(1); schedule(); });
     on('btnZoomFit', 'click', doFit);
+    on('btnClearFocus', 'click', clearFocus);
 
     on('search', 'input', function () {
       ui.query = el.search.value;
@@ -1816,6 +1975,7 @@
         if (!el.modal.hidden) { closeModal(); return; }
         if (!el.contextMenu.hidden) { hideMenu(); return; }
         if (ui.selectedId) { select(null); return; }
+        if (ui.focus) { clearFocus(); return; }
         if (ui.viewer) { leaveViewer(); return; }
       }
 
@@ -1836,13 +1996,14 @@
       // not, so those keys do nothing until the viewer is left.
       var key = e.key.toLowerCase();
       var EDIT_KEYS = ['a', 'l', 'e', 'delete', 'backspace'];
-      if (ui.viewer && EDIT_KEYS.indexOf(key) >= 0) return;
+      if (readOnly() && EDIT_KEYS.indexOf(key) >= 0) return;
 
       switch (key) {
         case 'a': e.preventDefault(); addPersonAt(centerWorld()); break;
         case 'l': doArrange(); break;
         case 'f': doFit(); break;
         case 'v': toggleViewer(); break;
+        case 'z': if (ui.selectedId) enterFocus(ui.selectedId); break;
         case '+': case '=': R.zoomAt(R.width / 2, R.height / 2, 1.2); schedule(); break;
         case '-': R.zoomAt(R.width / 2, R.height / 2, 1 / 1.2); schedule(); break;
         case 'delete': case 'backspace':

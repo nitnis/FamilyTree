@@ -121,6 +121,19 @@
       this._redo.length = 0;
     },
 
+    /** Set the history aside so a temporary view cannot disturb it. */
+    detachHistory: function () {
+      var held = { undo: this._undo, redo: this._redo };
+      this._undo = [];
+      this._redo = [];
+      return held;
+    },
+
+    attachHistory: function (held) {
+      this._undo = (held && held.undo) || [];
+      this._redo = (held && held.redo) || [];
+    },
+
     canUndo: function () { return this._undo.length > 0; },
     canRedo: function () { return this._redo.length > 0; },
 

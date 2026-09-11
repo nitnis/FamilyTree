@@ -21,7 +21,7 @@
     theme: 'light',
     spaceDown: false,
     shared: false,       // viewing a tree that arrived in the URL
-    sharedEdited: false
+    viewer: false        // full screen, read only
   };
   var geo = { nodes: {}, links: [], bounds: null };
   var frame = null;
@@ -33,7 +33,7 @@
       'treeTitle', 'btnAddPerson', 'btnArrange', 'btnFit', 'btnUndo', 'btnRedo',
       'btnSample', 'btnImport', 'btnExport', 'btnPng', 'btnClear', 'btnTheme',
       'btnDrive', 'driveLabel', 'btnShare',
-      'sharedBanner', 'sharedText', 'btnKeepShared', 'btnDiscardShared',
+      'btnViewer', 'btnExitViewer', 'viewerTitle', 'viewerTitleName', 'viewerTitleMeta',
       'fileInput', 'sidebar', 'search', 'peopleList', 'peopleCount', 'canvasWrap',
       'tree', 'emptyState', 'btnZoomIn', 'btnZoomOut', 'btnZoomReset', 'inspector',
       'inspectorTitle', 'inspectorBody', 'btnCloseInspector', 'contextMenu', 'modal', 'modalTitle',
@@ -77,12 +77,9 @@
     schedule();
     // Undo/redo and loads are edits too — anything that changes the tree is
     // queued, and Drive.schedule() debounces the burst into one upload.
-    if (ui.shared) {
-      // A shared tree is only being viewed: it must not reach this browser's
-      // storage or the linked Drive file until it is explicitly kept.
-      markSharedEdited(reason);
-      return;
-    }
+    // A shared tree is only being viewed: it must not reach this browser's
+    // storage or the linked Drive file until it is explicitly kept.
+    if (ui.shared) return;
     if (Drive.isLinked() && reason !== 'drive-load') queueDriveSave();
   }
 
@@ -106,9 +103,16 @@
     el.peopleCount.textContent = String(Store.state.people.length);
     el.emptyState.hidden = Store.state.people.length > 0;
     el.btnZoomReset.textContent = Math.round(R.view.k * 100) + '%';
+    renderViewerTitle();
   }
 
   /* ============================ rendering =========================== */
+
+  /** The canvas box changes when panels appear or the mode switches. */
+  function onResize() {
+    R.resize();
+    schedule();
+  }
 
   function schedule() {
     if (frame) return;
@@ -227,7 +231,9 @@
       el.inspectorTitle.textContent = 'Details';
       var note = document.createElement('p');
       note.className = 'empty-note';
-      note.textContent = 'Select a person on the canvas to see and edit their details.';
+      note.textContent = ui.viewer
+        ? 'Select a person on the canvas to see their details.'
+        : 'Select a person on the canvas to see and edit their details.';
       el.inspectorBody.appendChild(note);
       el.inspector.classList.remove('is-open');
       return;
@@ -252,9 +258,16 @@
     head.appendChild(av); head.appendChild(box);
     el.inspectorBody.appendChild(head);
 
-    var editBtn = button('Edit details', 'btn', function () { openPersonForm(p.id); });
-    editBtn.style.width = '100%';
-    el.inspectorBody.appendChild(editBtn);
+    if (ui.viewer) {
+      var ro = document.createElement('p');
+      ro.className = 'read-only-note';
+      ro.textContent = 'View only. Leave full screen to make changes.';
+      el.inspectorBody.appendChild(ro);
+    } else {
+      var editBtn = button('Edit details', 'btn', function () { openPersonForm(p.id); });
+      editBtn.style.width = '100%';
+      el.inspectorBody.appendChild(editBtn);
+    }
 
     // Quick facts
     var facts = [
@@ -291,42 +304,50 @@
     }
 
     // Relationships
+    var editable = !ui.viewer;
+
     el.inspectorBody.appendChild(sectionTitle('Parents'));
-    relList(Store.parentsOf(p.id), null, function (parent) {
+    relList(Store.parentsOf(p.id), null, editable ? function (parent) {
       Store.detachChild(p.id);
       toast('Detached from parents');
-    });
+    } : null);
 
-    el.inspectorBody.appendChild(actionRow([
-      ['Add parent', function () { addParent(p.id); }],
-      ['Link existing…', function () { linkParent(p.id); }]
-    ]));
+    if (editable) {
+      el.inspectorBody.appendChild(actionRow([
+        ['Add parent', function () { addParent(p.id); }],
+        ['Link existing…', function () { linkParent(p.id); }]
+      ]));
+    }
 
     el.inspectorBody.appendChild(sectionTitle('Partners'));
     var partners = Store.partnersOf(p.id);
     relList(partners.map(function (x) { return x.person; }), function (i) {
-      return unionTypeSelect(partners[i].union);
-    }, function (other, i) {
+      return editable ? unionTypeSelect(partners[i].union) : unionLabel(partners[i].union);
+    }, editable ? function (other, i) {
       Store.unlinkPartners(partners[i].union.id);
       toast('Partnership removed');
-    });
+    } : null);
 
-    el.inspectorBody.appendChild(actionRow([
-      ['Add partner', function () { addPartner(p.id); }],
-      ['Link existing…', function () { linkPartner(p.id); }]
-    ]));
+    if (editable) {
+      el.inspectorBody.appendChild(actionRow([
+        ['Add partner', function () { addPartner(p.id); }],
+        ['Link existing…', function () { linkPartner(p.id); }]
+      ]));
+    }
 
     el.inspectorBody.appendChild(sectionTitle('Children'));
     var kids = Store.childrenOf(p.id);
-    relList(kids, null, function (child) {
+    relList(kids, null, editable ? function (child) {
       Store.detachChild(child.id);
       toast('Child detached');
-    });
+    } : null);
 
-    el.inspectorBody.appendChild(actionRow([
-      ['Add child', function () { addChild(p.id); }],
-      ['Link existing…', function () { linkChild(p.id); }]
-    ]));
+    if (editable) {
+      el.inspectorBody.appendChild(actionRow([
+        ['Add child', function () { addChild(p.id); }],
+        ['Link existing…', function () { linkChild(p.id); }]
+      ]));
+    }
 
     var sibs = Store.siblingsOf(p.id);
     if (sibs.length) {
@@ -334,12 +355,14 @@
       relList(sibs, null, null);
     }
 
-    var danger = document.createElement('div');
-    danger.className = 'danger-zone';
-    var del = button('Delete person', 'btn btn-danger', function () { confirmDelete(p.id); });
-    del.style.width = '100%';
-    danger.appendChild(del);
-    el.inspectorBody.appendChild(danger);
+    if (editable) {
+      var danger = document.createElement('div');
+      danger.className = 'danger-zone';
+      var del = button('Delete person', 'btn btn-danger', function () { confirmDelete(p.id); });
+      del.style.width = '100%';
+      danger.appendChild(del);
+      el.inspectorBody.appendChild(danger);
+    }
   }
 
   function relList(people, tagFn, onUnlink) {
@@ -396,6 +419,11 @@
       ul.appendChild(li);
     });
     el.inspectorBody.appendChild(ul);
+  }
+
+  function unionLabel(u) {
+    return { married: 'married', divorced: 'divorced', partners: 'partners',
+             engaged: 'engaged' }[u.type] || '';
   }
 
   /** The relationship kind doubles as its own editor — it changes how the
@@ -904,8 +932,14 @@
 
       if (hit) {
         select(hit.id);
-        drag = { id: hit.id, dx: w.x - hit.x, dy: w.y - hit.y, moved: false };
-        c.classList.add('is-dragging');
+        if (!ui.viewer) {
+          drag = { id: hit.id, dx: w.x - hit.x, dy: w.y - hit.y, moved: false };
+          c.classList.add('is-dragging');
+        } else {
+          // Dragging a card would move it, so in view-only a card drag pans.
+          pan = { x: e.clientX, y: e.clientY };
+          c.classList.add('is-panning');
+        }
       } else {
         pan = { x: e.clientX, y: e.clientY };
         c.classList.add('is-panning');
@@ -976,6 +1010,7 @@
     }, { passive: false });
 
     c.addEventListener('dblclick', function (e) {
+      if (ui.viewer) return;
       var pt = localPoint(e);
       var w = R.screenToWorld(pt.x, pt.y);
       var hit = R.hitTest(geo, w.x, w.y);
@@ -985,6 +1020,7 @@
 
     c.addEventListener('contextmenu', function (e) {
       e.preventDefault();
+      if (ui.viewer) return;
       var pt = localPoint(e);
       var w = R.screenToWorld(pt.x, pt.y);
       var hit = R.hitTest(geo, w.x, w.y);
@@ -1045,7 +1081,8 @@
     ui.selectedId = id;
     renderPeopleList();
     renderInspector();
-    if (id && window.innerWidth <= 860) el.inspector.classList.add('is-open');
+    if (id && (ui.viewer || window.innerWidth <= 860)) el.inspector.classList.add('is-open');
+    else if (!id && ui.viewer) el.inspector.classList.remove('is-open');
     schedule();
   }
 
@@ -1327,6 +1364,86 @@
   }
 
 
+
+  /* =========================== viewer mode ========================== */
+
+  /**
+   * Full screen, read only: no toolbar, no sidebar, and nothing that would
+   * change the tree. A person's card still opens, just without its editing
+   * controls. This is how a shared link opens.
+   */
+  function enterViewer() {
+    if (ui.viewer) return;
+    ui.viewer = true;
+    document.body.classList.add('is-viewer');
+    el.btnExitViewer.hidden = false;
+    el.viewerTitle.hidden = false;
+    hideMenu();
+    closeModal();
+    el.inspector.classList.remove('is-open');
+    renderViewerTitle();
+    renderInspector();
+    onResize();
+    el.btnExitViewer.focus();
+  }
+
+  function toggleViewer() {
+    if (ui.viewer) leaveViewer();
+    else enterViewer();
+  }
+
+  function exitViewer() {
+    if (!ui.viewer) return;
+    ui.viewer = false;
+    document.body.classList.remove('is-viewer');
+    el.btnExitViewer.hidden = true;
+    el.viewerTitle.hidden = true;
+    el.inspector.classList.remove('is-open');
+    renderInspector();
+    onResize();
+  }
+
+  function renderViewerTitle() {
+    if (!ui.viewer) return;
+    var n = Store.state.people.length;
+    el.viewerTitleName.textContent = Store.state.title || 'Family tree';
+    el.viewerTitleMeta.textContent = countPeople(n) +
+      (ui.shared ? ' · shared with you · view only' : ' · view only');
+  }
+
+  /**
+   * The X button. A tree that arrived in a link has not been kept anywhere
+   * yet, so leaving is the moment to decide what happens to it.
+   */
+  function leaveViewer() {
+    if (!ui.shared) {
+      exitViewer();
+      return;
+    }
+
+    var body = document.createElement('div');
+    var note = document.createElement('p');
+    note.className = 'modal-note';
+    note.innerHTML = 'This tree came from a share link and is not saved anywhere yet. ' +
+      'Editing keeps it in this browser' +
+      (Drive.isLinked() ? ' and replaces your linked Drive file' : '') +
+      '; discarding returns to the tree you already had.';
+    body.appendChild(note);
+
+    openModal('Leave full screen', body, [
+      button('Cancel', 'btn', closeModal),
+      button('Discard', 'btn btn-danger', function () {
+        closeModal();
+        exitViewer();
+        discardShared();
+      }),
+      button('Edit this tree', 'btn btn-primary', function () {
+        closeModal();
+        keepShared(exitViewer);
+      })
+    ]);
+  }
+
   /* ======================== share links (#tree=) ==================== */
 
   /** Open a tree that arrived in the URL, without touching anything saved. */
@@ -1340,7 +1457,6 @@
 
       Store.persistPaused = true;
       ui.shared = true;
-      ui.sharedEdited = false;
       Store.load(data);
       ui.selectedId = null;
       if (!Store.state.people.some(function (p) { return p.x || p.y; })) {
@@ -1349,7 +1465,7 @@
       R.fit(Store.state);
       schedule();
       Store.clearHistory();       // undo must not reach back past the share
-      renderSharedBanner();
+      enterViewer();
       return true;
     }, function (err) {
       clearShareHash();
@@ -1358,37 +1474,15 @@
     });
   }
 
-  function markSharedEdited(reason) {
-    if (reason === 'load' || ui.sharedEdited) return;
-    ui.sharedEdited = true;
-    renderSharedBanner();
-  }
-
-  function renderSharedBanner() {
-    if (!ui.shared) {
-      el.sharedBanner.hidden = true;
-      renderDriveButton();
-      return;
-    }
-    el.sharedBanner.hidden = false;
-    el.sharedBanner.classList.toggle('is-dirty', ui.sharedEdited);
-    renderDriveButton();
-    el.sharedText.innerHTML = ui.sharedEdited
-      ? 'Editing a shared tree — <b>nothing is being saved</b>. Keep a copy to start saving.'
-      : 'Viewing a shared tree from this link. Your own tree is untouched.';
-    el.btnDiscardShared.textContent = ui.sharedEdited ? 'Discard changes' : 'Discard';
-  }
-
   /** Adopt the shared tree as this browser's own. */
-  function keepShared() {
+  function keepShared(after) {
     var linked = Drive.isLinked();
     function commit() {
       ui.shared = false;
-      ui.sharedEdited = false;
       Store.persistPaused = false;
       Store.persist();
       clearShareHash();
-      renderSharedBanner();
+      if (typeof after === 'function') after();
       if (linked) {
         queueDriveSave();
         toast('Kept — now saving here and to ' + Drive.config.name);
@@ -1416,11 +1510,10 @@
 
   /** Drop the shared tree and go back to whatever this browser had. */
   function discardShared() {
+    exitViewer();
     ui.shared = false;
-    ui.sharedEdited = false;
     Store.persistPaused = false;
     clearShareHash();
-    renderSharedBanner();
 
     var restored = Store.restore();
     if (!restored) Store.state = FT.emptyState();
@@ -1527,8 +1620,8 @@
     el.btnPng.addEventListener('click', exportPNG);
     el.btnDrive.addEventListener('click', openDriveDialog);
     el.btnShare.addEventListener('click', openShareDialog);
-    el.btnKeepShared.addEventListener('click', keepShared);
-    el.btnDiscardShared.addEventListener('click', discardShared);
+    el.btnViewer.addEventListener('click', enterViewer);
+    el.btnExitViewer.addEventListener('click', leaveViewer);
     el.btnImport.addEventListener('click', function () { el.fileInput.click(); });
     el.fileInput.addEventListener('change', importJSON);
 
@@ -1683,6 +1776,7 @@
         if (!el.modal.hidden) { closeModal(); return; }
         if (!el.contextMenu.hidden) { hideMenu(); return; }
         if (ui.selectedId) { select(null); return; }
+        if (ui.viewer) { leaveViewer(); return; }
       }
 
       if (isTyping(e.target)) return;
@@ -1697,10 +1791,18 @@
       if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); exportJSON(); return; }
       if (mod) return;
 
-      switch (e.key.toLowerCase()) {
+      // Panning, zooming and fitting are fine while viewing. Everything that
+      // would change the tree — including auto-arrange, which moves cards — is
+      // not, so those keys do nothing until the viewer is left.
+      var key = e.key.toLowerCase();
+      var EDIT_KEYS = ['a', 'l', 'e', 'delete', 'backspace'];
+      if (ui.viewer && EDIT_KEYS.indexOf(key) >= 0) return;
+
+      switch (key) {
         case 'a': e.preventDefault(); addPersonAt(centerWorld()); break;
         case 'l': doArrange(); break;
         case 'f': doFit(); break;
+        case 'v': toggleViewer(); break;
         case '+': case '=': R.zoomAt(R.width / 2, R.height / 2, 1.2); schedule(); break;
         case '-': R.zoomAt(R.width / 2, R.height / 2, 1 / 1.2); schedule(); break;
         case 'delete': case 'backspace':
@@ -1732,8 +1834,7 @@
   function bindWindow() {
     var resizeTimer = null;
     window.addEventListener('resize', function () {
-      R.resize();
-      schedule();
+      onResize();
       window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(schedule, 120);
     });

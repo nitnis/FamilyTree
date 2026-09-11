@@ -92,8 +92,8 @@
         unions: [],
         childBlocks: [],
         parentBlock: null,
-        indexOf: {},
-        childAnchors: [],
+        indexOf: Object.create(null),
+        anchorGroups: [],
         x: 0
       };
       members.forEach(function (id, i) { blockOf[id] = block; block.indexOf[id] = i; });
@@ -166,9 +166,10 @@
 
     blocks.forEach(function (b) {
       var kids = [];
-      var anchors = [];
+      var groups = [];
       var seen = {};
       b.unions.forEach(function (u) {
+        var mine = [];
         u.children.slice().sort(function (x, y) {
           return birthKey(byId[x]) - birthKey(byId[y]);
         }).forEach(function (cid) {
@@ -177,11 +178,14 @@
           if (cb.parentBlock !== b) return;
           seen[cb.id] = true;
           kids.push(cb);
-          anchors.push(cid);
+          mine.push(cid);
         });
+        // Each union keeps its own children, so its junction can be placed
+        // over them rather than over every child in the block.
+        if (mine.length) groups.push({ union: u, anchors: mine });
       });
       b.childBlocks = kids;
-      b.childAnchors = anchors;
+      b.anchorGroups = groups;
     });
 
     var cursor = {};
@@ -198,10 +202,63 @@
       cursor[b.gen] = Math.max(floorAt(b.gen), b.x + width(b) + M.H_GAP);
       b.childBlocks.forEach(function (k) { shift(k, dx); });
     }
+    function memberOffset(b, personId) {
+      return (b.indexOf[personId] || 0) * (M.NODE_W + M.SPOUSE_GAP);
+    }
     function cardCentre(personId) {
       var cb = blockOf[personId];
       if (!cb) return 0;
-      return cb.x + (cb.indexOf[personId] || 0) * (M.NODE_W + M.SPOUSE_GAP) + M.NODE_W / 2;
+      return cb.x + memberOffset(cb, personId) + M.NODE_W / 2;
+    }
+
+    /** Where a union's junction sits, measured from its block's left edge.
+        Must match geometry(): the midpoint between a couple's facing edges,
+        or the centre of a lone parent's card. */
+    function junctionOffset(b, u) {
+      var hasA = u.a !== null && u.a in b.indexOf;
+      var hasB = u.b !== null && u.b in b.indexOf;
+      if (!hasA && !hasB) return width(b) / 2;
+      if (!hasA || !hasB) return memberOffset(b, hasA ? u.a : u.b) + M.NODE_W / 2;
+      var oa = memberOffset(b, u.a);
+      var ob = memberOffset(b, u.b);
+      return (Math.min(oa, ob) + M.NODE_W + Math.max(oa, ob)) / 2;
+    }
+
+    /**
+     * Where the block wants to sit so each junction lands over the middle of
+     * that union's own children.
+     *
+     * A single union solves exactly. A remarriage with children on both sides
+     * often cannot: the junctions are one member-step apart, while the sibling
+     * groups below can be spread much wider, and closing that gap would mean
+     * marriage bars several card-widths long. So the residual is shared out,
+     * weighted by how much error each union can absorb — a junction over a
+     * wide sibling bus still meets it well inside its span, whereas one over a
+     * single child turns into a visible horizontal jog, so narrow groups pull
+     * harder. With one union the weight cancels and the fit stays exact.
+     */
+    function desiredX(b) {
+      if (b.anchorGroups.length) {
+        var sum = 0, total = 0;
+        b.anchorGroups.forEach(function (g) {
+          var lo = Infinity, hi = -Infinity;
+          g.anchors.forEach(function (cid) {
+            var c = cardCentre(cid);
+            lo = Math.min(lo, c);
+            hi = Math.max(hi, c);
+          });
+          var weight = 1 / (hi - lo + M.NODE_W);
+          sum += ((lo + hi) / 2 - junctionOffset(b, g.union)) * weight;
+          total += weight;
+        });
+        return sum / total;
+      }
+      var left = Infinity, right = -Infinity;
+      b.childBlocks.forEach(function (k) {
+        left = Math.min(left, k.x + M.NODE_W / 2);
+        right = Math.max(right, k.x + width(k) - M.NODE_W / 2);
+      });
+      return (left + right) / 2 - width(b) / 2;
     }
     function place(b) {
       if (placed[b.id]) return;
@@ -214,20 +271,7 @@
       var x = min;
 
       if (b.childBlocks.length) {
-        var left = Infinity, right = -Infinity;
-        if (b.childAnchors.length) {
-          b.childAnchors.forEach(function (cid) {
-            var c = cardCentre(cid);
-            left = Math.min(left, c);
-            right = Math.max(right, c);
-          });
-        } else {
-          b.childBlocks.forEach(function (k) {
-            left = Math.min(left, k.x + M.NODE_W / 2);
-            right = Math.max(right, k.x + width(k) - M.NODE_W / 2);
-          });
-        }
-        x = (left + right) / 2 - w / 2;
+        x = desiredX(b);
         if (x < min) {
           // No room to centre here: push the whole subtree right instead.
           var dx = min - x;

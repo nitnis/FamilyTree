@@ -36,6 +36,7 @@
     <button id="btnImport" class="btn btn-ghost" title="Import a .json tree">Import</button>
     <button id="btnExport" class="btn btn-ghost" title="Download tree as .json">Export</button>
     <button id="btnPng" class="btn btn-ghost" title="Download tree as .png">PNG</button>
+    <button id="btnShare" class="btn btn-ghost" title="Create a link containing this whole tree">Share link</button>
     <button id="btnDrive" class="btn btn-ghost btn-drive" title="Keep this tree in a Google Drive file">
       <span class="drive-dot" aria-hidden="true"></span><span id="driveLabel">Link to Drive</span>
     </button>
@@ -44,6 +45,15 @@
   </div>
   <input type="file" id="fileInput" accept="application/json,.json" hidden>
 </header>
+
+<div class="shared-banner" id="sharedBanner" hidden>
+  <span class="shared-icon" aria-hidden="true">🔗</span>
+  <span class="shared-text" id="sharedText"></span>
+  <span class="shared-actions">
+    <button class="btn btn-primary" id="btnKeepShared">Keep a copy</button>
+    <button class="btn" id="btnDiscardShared">Discard</button>
+  </span>
+</div>
 
 <main class="workspace">
 
@@ -118,6 +128,7 @@
 
 <script src="js/store.js"></script>
 <script src="js/drive.js"></script>
+<script src="js/share.js"></script>
 <script src="js/layout.js"></script>
 <script src="js/render.js"></script>
 <script src="js/app.js"></script>

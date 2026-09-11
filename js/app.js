@@ -8,6 +8,7 @@
   var FT = window.FT;
   var Store = FT.Store;
   var Drive = FT.Drive;
+  var Share = FT.Share;
   var Layout = FT.Layout;
   var R = FT.Renderer;
   var M = Layout.METRICS;
@@ -18,7 +19,9 @@
     hoverId: null,
     query: '',
     theme: 'light',
-    spaceDown: false
+    spaceDown: false,
+    shared: false,       // viewing a tree that arrived in the URL
+    sharedEdited: false
   };
   var geo = { nodes: {}, links: [], bounds: null };
   var frame = null;
@@ -29,7 +32,8 @@
     [
       'treeTitle', 'btnAddPerson', 'btnArrange', 'btnFit', 'btnUndo', 'btnRedo',
       'btnSample', 'btnImport', 'btnExport', 'btnPng', 'btnClear', 'btnTheme',
-      'btnDrive', 'driveLabel',
+      'btnDrive', 'driveLabel', 'btnShare',
+      'sharedBanner', 'sharedText', 'btnKeepShared', 'btnDiscardShared',
       'fileInput', 'sidebar', 'search', 'peopleList', 'peopleCount', 'canvasWrap',
       'tree', 'emptyState', 'btnZoomIn', 'btnZoomOut', 'btnZoomReset', 'inspector',
       'inspectorTitle', 'inspectorBody', 'btnCloseInspector', 'contextMenu', 'modal', 'modalTitle',
@@ -61,6 +65,10 @@
     refreshAll();
     if (Store.state.people.length) R.fit(Store.state);
     schedule();
+
+    var shared = Share.fromLocation();
+    if (shared) openSharedPayload(shared);
+    else if (Share.hasLink()) clearShareHash();   // an empty #tree= is just noise
   }
 
   function onStoreChange(state, reason) {
@@ -69,6 +77,12 @@
     schedule();
     // Undo/redo and loads are edits too — anything that changes the tree is
     // queued, and Drive.schedule() debounces the burst into one upload.
+    if (ui.shared) {
+      // A shared tree is only being viewed: it must not reach this browser's
+      // storage or the linked Drive file until it is explicitly kept.
+      markSharedEdited(reason);
+      return;
+    }
     if (Drive.isLinked() && reason !== 'drive-load') queueDriveSave();
   }
 
@@ -1044,7 +1058,8 @@
     pending:    function (c) { return c.name; },
     saving:     function (c) { return c.name; },
     synced:     function (c) { return c.name; },
-    error:      function (c) { return c.name; }
+    error:      function (c) { return c.name; },
+    paused:     function (c) { return c.name; }
   };
 
   var DRIVE_TITLES = {
@@ -1053,12 +1068,16 @@
     pending:    'Unsaved changes — saving to Drive shortly',
     saving:     'Saving to Google Drive…',
     synced:     'Saved to Google Drive',
-    error:      'Could not save to Google Drive'
+    error:      'Could not save to Google Drive',
+    paused:     'Paused while a shared tree is open'
   };
 
   function renderDriveButton() {
     var linked = Drive.isLinked();
     var status = linked ? Drive.status : 'unlinked';
+    // Nothing is saved while a shared tree is on screen, so the dot must not
+    // promise a save that is never coming.
+    if (linked && ui.shared) status = 'paused';
     var label = (DRIVE_LABELS[status] || DRIVE_LABELS.unlinked)(Drive.config || {});
 
     el.driveLabel.textContent = label;
@@ -1307,6 +1326,191 @@
     });
   }
 
+
+  /* ======================== share links (#tree=) ==================== */
+
+  /** Open a tree that arrived in the URL, without touching anything saved. */
+  function openSharedPayload(payload) {
+    return Share.decode(payload).then(function (data) {
+      // A Drive save already queued would serialise whatever is in the store
+      // when its timer fires, which is about to become the shared tree — so
+      // drop it. The local copy still holds those edits, and discarding the
+      // share re-uploads them.
+      if (Drive.isLinked()) Drive.cancelPending();
+
+      Store.persistPaused = true;
+      ui.shared = true;
+      ui.sharedEdited = false;
+      Store.load(data);
+      ui.selectedId = null;
+      if (!Store.state.people.some(function (p) { return p.x || p.y; })) {
+        Layout.autoArrange(Store.state);
+      }
+      R.fit(Store.state);
+      schedule();
+      Store.clearHistory();       // undo must not reach back past the share
+      renderSharedBanner();
+      return true;
+    }, function (err) {
+      clearShareHash();
+      toast(err.message || 'That share link could not be opened', 4200);
+      return false;
+    });
+  }
+
+  function markSharedEdited(reason) {
+    if (reason === 'load' || ui.sharedEdited) return;
+    ui.sharedEdited = true;
+    renderSharedBanner();
+  }
+
+  function renderSharedBanner() {
+    if (!ui.shared) {
+      el.sharedBanner.hidden = true;
+      renderDriveButton();
+      return;
+    }
+    el.sharedBanner.hidden = false;
+    el.sharedBanner.classList.toggle('is-dirty', ui.sharedEdited);
+    renderDriveButton();
+    el.sharedText.innerHTML = ui.sharedEdited
+      ? 'Editing a shared tree — <b>nothing is being saved</b>. Keep a copy to start saving.'
+      : 'Viewing a shared tree from this link. Your own tree is untouched.';
+    el.btnDiscardShared.textContent = ui.sharedEdited ? 'Discard changes' : 'Discard';
+  }
+
+  /** Adopt the shared tree as this browser's own. */
+  function keepShared() {
+    var linked = Drive.isLinked();
+    function commit() {
+      ui.shared = false;
+      ui.sharedEdited = false;
+      Store.persistPaused = false;
+      Store.persist();
+      clearShareHash();
+      renderSharedBanner();
+      if (linked) {
+        queueDriveSave();
+        toast('Kept — now saving here and to ' + Drive.config.name);
+      } else {
+        toast('Kept — now saving in this browser');
+      }
+    }
+
+    if (!linked) return commit();
+
+    // Keeping would also replace the linked Drive file, so say so first.
+    var body = document.createElement('div');
+    var note = document.createElement('p');
+    note.className = 'modal-note';
+    note.innerHTML = 'This tree will be saved in this browser <b>and will replace the ' +
+      'contents of your linked Drive file</b> (<b class="f"></b>).';
+    note.querySelector('.f').textContent = Drive.config.name;
+    body.appendChild(note);
+
+    openModal('Keep this tree?', body, [
+      button('Cancel', 'btn', closeModal),
+      button('Keep and replace', 'btn btn-primary', function () { closeModal(); commit(); })
+    ]);
+  }
+
+  /** Drop the shared tree and go back to whatever this browser had. */
+  function discardShared() {
+    ui.shared = false;
+    ui.sharedEdited = false;
+    Store.persistPaused = false;
+    clearShareHash();
+    renderSharedBanner();
+
+    var restored = Store.restore();
+    if (!restored) Store.state = FT.emptyState();
+    Store.clearHistory();
+    ui.selectedId = null;
+    Store.emit('restore');
+    if (Store.state.people.length) R.fit(Store.state);
+    schedule();
+    toast('Shared tree discarded');
+  }
+
+  function clearShareHash() {
+    if (!Share.hasLink()) return;
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    } else {
+      window.location.hash = '';
+    }
+  }
+
+  function openShareDialog() {
+    if (!Store.state.people.length) {
+      toast('Add someone to the tree first');
+      return;
+    }
+
+    var body = document.createElement('div');
+    var note = document.createElement('p');
+    note.className = 'modal-note';
+    note.textContent = 'This link carries the whole tree inside it. Nothing is uploaded ' +
+      'anywhere — the part after the # never leaves the browser — so it keeps working ' +
+      'without any account, and it is a snapshot rather than a live copy.';
+    body.appendChild(note);
+
+    var field = document.createElement('textarea');
+    field.className = 'share-url';
+    field.readOnly = true;
+    field.value = 'Building link…';
+    body.appendChild(field);
+
+    var size = document.createElement('div');
+    size.className = 'share-size';
+    size.textContent = ' ';
+    body.appendChild(size);
+
+    var copyBtn = button('Copy link', 'btn btn-primary', function () {
+      field.select();
+      copyText(field.value).then(function (ok) {
+        toast(ok ? 'Link copied' : 'Press Ctrl+C to copy the selected link');
+      });
+    });
+    copyBtn.disabled = true;
+
+    openModal('Share link', body, [button('Close', 'btn', closeModal), copyBtn]);
+
+    Share.link(Store.state).then(function (url) {
+      field.value = url;
+      copyBtn.disabled = false;
+      var verdict = Share.classify(url);
+      size.className = 'share-size level-' + verdict.level;
+      size.textContent = '';
+      var strong = document.createElement('b');
+      strong.textContent = verdict.chars.toLocaleString() + ' characters';
+      size.appendChild(strong);
+      size.appendChild(document.createTextNode(' · ' + verdict.note));
+      field.focus();
+      field.select();
+    }, function () {
+      field.value = '';
+      size.className = 'share-size level-risk';
+      size.textContent = 'This tree could not be packed into a link.';
+    });
+  }
+
+  function copyText(text) {
+    if (window.navigator.clipboard && window.navigator.clipboard.writeText) {
+      return window.navigator.clipboard.writeText(text).then(function () { return true; },
+        function () { return legacyCopy(); });
+    }
+    return Promise.resolve(legacyCopy());
+  }
+
+  function legacyCopy() {
+    try {
+      return document.execCommand('copy');
+    } catch (err) {
+      return false;
+    }
+  }
+
   /* ============================ toolbar ============================= */
 
   function bindToolbar() {
@@ -1322,6 +1526,9 @@
     el.btnExport.addEventListener('click', exportJSON);
     el.btnPng.addEventListener('click', exportPNG);
     el.btnDrive.addEventListener('click', openDriveDialog);
+    el.btnShare.addEventListener('click', openShareDialog);
+    el.btnKeepShared.addEventListener('click', keepShared);
+    el.btnDiscardShared.addEventListener('click', discardShared);
     el.btnImport.addEventListener('click', function () { el.fileInput.click(); });
     el.fileInput.addEventListener('change', importJSON);
 
@@ -1532,6 +1739,10 @@
     });
     document.addEventListener('click', function (e) {
       if (!el.contextMenu.hidden && !el.contextMenu.contains(e.target)) hideMenu();
+    });
+    window.addEventListener('hashchange', function () {
+      var payload = Share.fromLocation();
+      if (payload) openSharedPayload(payload);
     });
     window.addEventListener('beforeunload', function () {
       Store.persist();

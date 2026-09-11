@@ -43,6 +43,7 @@ left off. Use **Export** for a real backup.
 - **Export** as JSON (round-trips through Import) or PNG at 2× for printing.
 - **Google Drive sync** — link a Drive file once and every edit is saved back to
   it, so the tree follows you between browsers and devices. See below.
+- **Share links** — pack the whole tree into a URL. No hosting, no account.
 
 ## Controls
 
@@ -61,6 +62,48 @@ left off. Use **Export** for a real backup.
 | Undo / redo | `Ctrl+Z` / `Ctrl+Shift+Z` |
 | Export JSON | `Ctrl+S` |
 | Focus search | `/` |
+
+## Share links
+
+**Share link** turns the whole tree into a URL:
+
+```
+https://nitnis.github.io/FamilyTree/#tree=gH4sIAAAAAAAAA63WXU...
+```
+
+The tree travels *inside* the link. Nothing is uploaded, nothing is fetched, and
+no account is involved — so there is nothing to keep in sync and nothing to
+break later. The part after the `#` is never sent to a server, not even to
+GitHub Pages, so the tree only ever exists in the browsers holding the link.
+
+The JSON is gzipped with `CompressionStream` and base64url-encoded. Measured on
+trees with realistic, non-repeating data:
+
+| People | JSON | Link |
+| --- | --- | --- |
+| 12 | 3.3 KB | ~1.0 KB |
+| 100 | 27 KB | ~4.5 KB |
+| 300 | 82 KB | ~12 KB |
+
+The share dialog shows the length and says how safely it will travel: browsers
+handle these easily, but mail clients sometimes wrap very long links across
+lines and break them, so for a large tree sending the JSON export is steadier.
+A browser without `CompressionStream` still reads and writes links, just longer
+ones — the payload's first character records which encoding was used.
+
+### Opening one is safe
+
+A share link is a snapshot of someone else's tree, so **opening one writes
+nothing**. Your own saved tree stays exactly as it was, and a linked Drive file
+is left alone — the Drive button greys out while a shared tree is on screen. A
+banner offers:
+
+- **Keep a copy** — adopt it as this browser's tree and resume saving. If a
+  Drive file is linked, it says first that the file will be replaced.
+- **Discard** — go back to the tree this browser already had.
+
+Editing a shared tree is allowed and still saves nothing; the banner turns red
+to say so until you keep it.
 
 ## Saving to Google Drive
 
@@ -114,6 +157,7 @@ works without a server.
 | --- | --- |
 | `js/store.js` | The data model, mutations, undo history, `localStorage` |
 | `js/drive.js` | Google Drive linking, OAuth tokens, debounced save/load |
+| `js/share.js` | Packing a tree into a URL fragment and reading it back |
 | `js/layout.js` | Generation assignment, auto-arrangement, edge routing |
 | `js/render.js` | Canvas painting, viewport (pan/zoom), hit testing, PNG export |
 | `js/app.js` | DOM: toolbar, sidebar, inspector, modals, pointer and key handling |
@@ -163,6 +207,19 @@ into the partner bars and child drop lines. That split is why a dragged card
 keeps its connectors without a relayout.
 
 A 161-person, 5-generation tree arranges in about 3 ms.
+
+### Share encoding
+
+`js/share.js` is self-contained: `encode()`/`decode()` move a tree between JSON
+and a URL fragment, and `classify()` turns a link's length into advice. Only
+errors raised deliberately carry their message through to the user — a failed
+gunzip throws its own opaque text, so anything else is reported as a damaged or
+truncated link.
+
+Entering the shared view pauses `Store.persist()` rather than trying to undo a
+write afterwards. It also cancels any queued Drive save, because that save holds
+a *getter* rather than a snapshot and would otherwise upload the shared tree to
+someone else's file when its timer fired.
 
 ### Drive sync
 

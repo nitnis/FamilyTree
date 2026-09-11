@@ -150,6 +150,80 @@ body {
 .btn-zoom { min-width: 56px; font-variant-numeric: tabular-nums; }
 .ico { font-size: 14px; }
 
+/* drive link button */
+
+.btn-drive { max-width: 190px; }
+#driveLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.drive-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.btn-drive[data-status="synced"] { color: var(--text); }
+.btn-drive[data-status="synced"] .drive-dot { background: var(--accent); }
+.btn-drive[data-status="pending"] .drive-dot { background: var(--highlight, #d9932a); }
+.btn-drive[data-status="saving"] .drive-dot,
+.btn-drive[data-status="connecting"] .drive-dot {
+  background: var(--accent);
+  animation: drive-pulse 1s ease-in-out infinite;
+}
+.btn-drive[data-status="error"] { color: var(--danger); }
+.btn-drive[data-status="error"] .drive-dot { background: var(--danger); }
+
+@keyframes drive-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .25; }
+}
+
+.setup-toggle {
+  display: block;
+  margin: 2px 0 10px;
+  padding: 0;
+  font: 12.5px var(--font);
+  color: var(--accent);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.setup-box {
+  margin-bottom: 12px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.setup-box ol { margin: 0 0 10px; padding-left: 18px; font-size: 12.5px; color: var(--text-dim); }
+.setup-box li { margin-bottom: 5px; }
+.setup-box code {
+  padding: 1px 4px;
+  font-size: 11.5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  word-break: break-all;
+}
+.setup-box a { color: var(--accent); }
+
+.drive-state {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  margin: -4px 0 14px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.drive-state.is-error { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+.drive-state b { color: var(--text); }
+.drive-state.is-error b { color: var(--danger); }
+
 /* ------------------------------ layout ------------------------------ */
 
 .workspace {

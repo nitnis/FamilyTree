@@ -7,6 +7,7 @@
 
   var FT = window.FT;
   var Store = FT.Store;
+  var Drive = FT.Drive;
   var Layout = FT.Layout;
   var R = FT.Renderer;
   var M = Layout.METRICS;
@@ -28,6 +29,7 @@
     [
       'treeTitle', 'btnAddPerson', 'btnArrange', 'btnFit', 'btnUndo', 'btnRedo',
       'btnSample', 'btnImport', 'btnExport', 'btnPng', 'btnClear', 'btnTheme',
+      'btnDrive', 'driveLabel',
       'fileInput', 'sidebar', 'search', 'peopleList', 'peopleCount', 'canvasWrap',
       'tree', 'emptyState', 'btnZoomIn', 'btnZoomOut', 'btnZoomReset', 'inspector',
       'inspectorTitle', 'inspectorBody', 'btnCloseInspector', 'contextMenu', 'modal', 'modalTitle',
@@ -45,6 +47,10 @@
       Store.state = FT.emptyState();
     }
 
+    Drive.restore();
+    Drive.onChange(renderDriveButton);
+    renderDriveButton();
+
     Store.subscribe(onStoreChange);
     bindToolbar();
     bindCanvas();
@@ -61,6 +67,13 @@
     if (reason !== 'move') refreshAll();
     else refreshChrome();
     schedule();
+    // Undo/redo and loads are edits too — anything that changes the tree is
+    // queued, and Drive.schedule() debounces the burst into one upload.
+    if (Drive.isLinked() && reason !== 'drive-load') queueDriveSave();
+  }
+
+  function queueDriveSave() {
+    Drive.schedule(function () { return JSON.stringify(Store.state, null, 2); });
   }
 
   function refreshAll() {
@@ -1022,6 +1035,278 @@
     schedule();
   }
 
+
+  /* ============================ google drive ======================== */
+
+  var DRIVE_LABELS = {
+    unlinked:   function () { return 'Link to Drive'; },
+    connecting: function () { return 'Connecting…'; },
+    pending:    function (c) { return c.name; },
+    saving:     function (c) { return c.name; },
+    synced:     function (c) { return c.name; },
+    error:      function (c) { return c.name; }
+  };
+
+  var DRIVE_TITLES = {
+    unlinked:   'Keep this tree in a Google Drive file',
+    connecting: 'Connecting to Google Drive…',
+    pending:    'Unsaved changes — saving to Drive shortly',
+    saving:     'Saving to Google Drive…',
+    synced:     'Saved to Google Drive',
+    error:      'Could not save to Google Drive'
+  };
+
+  function renderDriveButton() {
+    var linked = Drive.isLinked();
+    var status = linked ? Drive.status : 'unlinked';
+    var label = (DRIVE_LABELS[status] || DRIVE_LABELS.unlinked)(Drive.config || {});
+
+    el.driveLabel.textContent = label;
+    el.btnDrive.dataset.status = status;
+    el.btnDrive.title = Drive.message || DRIVE_TITLES[status] || DRIVE_TITLES.unlinked;
+  }
+
+  function openDriveDialog() {
+    if (Drive.isLinked()) openDriveManage();
+    else openDriveLink();
+  }
+
+  /** Status line plus the actions available on an existing link. */
+  function openDriveManage() {
+    var cfg = Drive.config;
+    var body = document.createElement('div');
+
+    var state = document.createElement('div');
+    state.className = 'drive-state' + (Drive.status === 'error' ? ' is-error' : '');
+    var txt = document.createElement('div');
+    var head = document.createElement('div');
+    head.innerHTML = 'Linked to <b></b>';
+    head.querySelector('b').textContent = cfg.name;
+    var sub = document.createElement('div');
+    sub.style.marginTop = '3px';
+    sub.textContent = Drive.message || driveStatusText();
+    txt.appendChild(head);
+    txt.appendChild(sub);
+    state.appendChild(txt);
+    body.appendChild(state);
+
+    var note = document.createElement('p');
+    note.className = 'modal-note';
+    note.textContent = 'Every change is saved to this file automatically. ' +
+      'Loading replaces the tree on screen with the copy in Drive.';
+    body.appendChild(note);
+
+    openModal('Google Drive', body, [
+      button('Unlink', 'btn btn-danger', function () {
+        closeModal();
+        Drive.unlink();
+        toast('Unlinked from Drive — still saving locally');
+      }),
+      button('Load from Drive', 'btn', function () { closeModal(); driveLoad(); }),
+      button('Change file…', 'btn', function () { closeModal(); openDriveLink(); }),
+      button('Save now', 'btn btn-primary', function () { closeModal(); driveSaveNow(); })
+    ]);
+  }
+
+  function driveStatusText() {
+    if (Drive.status === 'saving') return 'Saving…';
+    if (Drive.status === 'pending') return 'Unsaved changes — saving shortly.';
+    if (Drive.status === 'synced') {
+      return Drive.lastSaved ? 'Saved at ' + new Date(Drive.lastSaved).toLocaleTimeString() : 'Saved.';
+    }
+    return 'Ready.';
+  }
+
+  function openDriveLink() {
+    var cfg = Drive.config || {};
+    var body = document.createElement('div');
+
+    var note = document.createElement('p');
+    note.className = 'modal-note';
+    note.textContent = 'Paste the link to a file in your Drive. The tree is saved into that ' +
+      'file from then on, so it follows you between browsers and devices.';
+    body.appendChild(note);
+
+    function field(label, node) {
+      var wrap = document.createElement('div');
+      wrap.className = 'field';
+      var l = document.createElement('label');
+      l.textContent = label;
+      wrap.appendChild(l);
+      wrap.appendChild(node);
+      return wrap;
+    }
+
+    var nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.placeholder = 'Family tree';
+    nameInput.value = cfg.name || '';
+    body.appendChild(field('Name (shown on the button)', nameInput));
+
+    var urlInput = document.createElement('input');
+    urlInput.type = 'text';
+    urlInput.placeholder = 'https://drive.google.com/file/d/…/view';
+    urlInput.value = cfg.url || '';
+    body.appendChild(field('Google Drive file link', urlInput));
+
+    var idInput = document.createElement('input');
+    idInput.type = 'text';
+    idInput.placeholder = '…apps.googleusercontent.com';
+    idInput.value = cfg.clientId || '';
+    var idField = field('Google OAuth client ID', idInput);
+
+    // The setup steps matter once; hide them when a client ID is already known.
+    var setup = document.createElement('div');
+    setup.className = 'setup-box';
+    setup.hidden = !!cfg.clientId;
+    setup.innerHTML =
+      '<ol>' +
+      '<li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud → Credentials</a> and create a project.</li>' +
+      '<li>Enable the <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener">Google Drive API</a>.</li>' +
+      '<li>Create an <b>OAuth client ID</b> of type <b>Web application</b>.</li>' +
+      '<li>Add this page\u2019s address as an authorised JavaScript origin: <code class="origin-hint"></code></li>' +
+      '<li>On the OAuth consent screen, add your own Google account as a test user.</li>' +
+      '</ol>';
+    setup.querySelector('.origin-hint').textContent = window.location.origin;
+    setup.appendChild(idField);
+
+    var toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'setup-toggle';
+    toggle.textContent = cfg.clientId ? 'Change Google account setup' : 'Hide setup steps';
+    toggle.addEventListener('click', function () {
+      setup.hidden = !setup.hidden;
+      toggle.textContent = setup.hidden ? 'Change Google account setup' : 'Hide setup steps';
+    });
+    body.appendChild(toggle);
+    body.appendChild(setup);
+
+    var errorBox = document.createElement('div');
+    errorBox.className = 'drive-state is-error';
+    errorBox.hidden = true;
+    body.appendChild(errorBox);
+
+    var applyBtn = button('Apply', 'btn btn-primary', apply);
+
+    function apply() {
+      var name = nameInput.value.trim();
+      var url = urlInput.value.trim();
+      var clientId = idInput.value.trim();
+
+      errorBox.hidden = true;
+      if (!url) { return fail('Paste the link to the Drive file first.'); }
+      if (!Drive.parseFileId(url)) { return fail('That does not look like a Google Drive file link.'); }
+      if (!clientId) {
+        setup.hidden = false;
+        toggle.textContent = 'Hide setup steps';
+        return fail('A Google OAuth client ID is needed before the page can reach Drive.');
+      }
+
+      applyBtn.disabled = true;
+      applyBtn.textContent = 'Connecting…';
+
+      Drive.link({ name: name, url: url, clientId: clientId }).then(function (result) {
+        closeModal();
+        if (result.remote) askDriveDirection(result);
+        else {
+          // Nothing usable in the file yet: the tree on screen becomes its content.
+          driveSaveNow();
+          toast('Linked to ' + Drive.config.name);
+        }
+      }, function (err) {
+        applyBtn.disabled = false;
+        applyBtn.textContent = 'Apply';
+        fail(err.message);
+      });
+    }
+
+    function fail(message) {
+      errorBox.textContent = message;
+      errorBox.hidden = false;
+    }
+
+    body.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); apply(); }
+    });
+
+    openModal('Link to Drive', body, [button('Cancel', 'btn', closeModal), applyBtn]);
+    window.setTimeout(function () { (cfg.name ? urlInput : nameInput).focus(); }, 30);
+  }
+
+  /** The linked file already holds a tree, so ask before either side is lost. */
+  function askDriveDirection(result) {
+    var remote = result.remote;
+    var body = document.createElement('div');
+    var note = document.createElement('p');
+    note.className = 'modal-note';
+    note.innerHTML = 'That file already holds a family tree (<b></b>). ' +
+      'The tree open here has <b class="local"></b>. Which one should win?';
+    note.querySelector('b').textContent = countPeople(remote.people.length) +
+      (remote.title ? ' — “' + remote.title + '”' : '');
+    note.querySelector('.local').textContent = countPeople(Store.state.people.length);
+    body.appendChild(note);
+
+    openModal('This file is not empty', body, [
+      button('Keep what is on screen', 'btn', function () {
+        closeModal();
+        driveSaveNow();
+        toast('Drive file overwritten with the tree on screen');
+      }),
+      button('Load the Drive copy', 'btn btn-primary', function () {
+        closeModal();
+        applyRemoteTree(remote);
+        toast('Loaded ' + countPeople(Store.state.people.length) + ' from Drive');
+      })
+    ]);
+  }
+
+  function countPeople(n) {
+    return n + (n === 1 ? ' person' : ' people');
+  }
+
+  function applyRemoteTree(data) {
+    Store.load(data);
+    ui.selectedId = null;
+
+    // A tree saved without positions needs arranging before it can be read.
+    var arranged = false;
+    if (!Store.state.people.some(function (p) { return p.x || p.y; })) {
+      Layout.autoArrange(Store.state);
+      arranged = true;
+    }
+    R.fit(Store.state);
+    schedule();
+
+    // This came *from* Drive, so drop the save that Store.load queued rather
+    // than writing the same bytes back. The arranged positions are new local
+    // data, though, so those are worth keeping.
+    Drive.markSynced();
+    if (arranged) queueDriveSave();
+  }
+
+  function driveLoad() {
+    if (!Drive.isLinked()) return;
+    toast('Loading from Drive…');
+    Drive.read(false).then(function (text) {
+      var data = JSON.parse(text);
+      if (!data || !Array.isArray(data.people)) throw new Error('That file is not a family tree.');
+      applyRemoteTree(data);
+      toast('Loaded ' + countPeople(Store.state.people.length) + ' from Drive');
+    }).catch(function (err) {
+      toast(err.message || 'Could not load from Drive', 3600);
+      renderDriveButton();
+    });
+  }
+
+  function driveSaveNow() {
+    if (!Drive.isLinked()) return;
+    queueDriveSave();
+    Drive.flush().then(function (ok) {
+      if (ok) toast('Saved to ' + Drive.config.name);
+      else if (Drive.status === 'error') toast(Drive.message || 'Could not save to Drive', 3600);
+    });
+  }
+
   /* ============================ toolbar ============================= */
 
   function bindToolbar() {
@@ -1036,6 +1321,7 @@
 
     el.btnExport.addEventListener('click', exportJSON);
     el.btnPng.addEventListener('click', exportPNG);
+    el.btnDrive.addEventListener('click', openDriveDialog);
     el.btnImport.addEventListener('click', function () { el.fileInput.click(); });
     el.fileInput.addEventListener('change', importJSON);
 
@@ -1247,7 +1533,11 @@
     document.addEventListener('click', function (e) {
       if (!el.contextMenu.hidden && !el.contextMenu.contains(e.target)) hideMenu();
     });
-    window.addEventListener('beforeunload', function () { Store.persist(); });
+    window.addEventListener('beforeunload', function () {
+      Store.persist();
+      // keepalive lets this upload outlive the page.
+      if (Drive.isLinked() && Drive.hasUnsaved()) Drive.flush({ keepalive: true });
+    });
   }
 
   /* ============================= theme ============================== */

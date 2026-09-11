@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kinfolk — Family Tree Canvas</title>
+<meta name="description" content="Build, arrange and export a family tree on an HTML canvas. Works offline, no account needed.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌳</text></svg>">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<header class="toolbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">🌳</span>
+    <input id="treeTitle" class="tree-title" value="My Family Tree" aria-label="Tree name" spellcheck="false">
+  </div>
+
+  <div class="toolbar-group">
+    <button id="btnAddPerson" class="btn btn-primary" title="Add a person (A)">
+      <span class="ico">＋</span> Add person
+    </button>
+    <button id="btnArrange" class="btn" title="Auto-arrange the tree (L)">Auto arrange</button>
+    <button id="btnFit" class="btn" title="Fit tree to view (F)">Fit</button>
+  </div>
+
+  <div class="toolbar-group">
+    <button id="btnUndo" class="btn btn-icon" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
+    <button id="btnRedo" class="btn btn-icon" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
+  </div>
+
+  <div class="toolbar-spacer"></div>
+
+  <div class="toolbar-group">
+    <button id="btnSample" class="btn btn-ghost" title="Load a demo family">Demo</button>
+    <button id="btnImport" class="btn btn-ghost" title="Import a .json tree">Import</button>
+    <button id="btnExport" class="btn btn-ghost" title="Download tree as .json">Export</button>
+    <button id="btnPng" class="btn btn-ghost" title="Download tree as .png">PNG</button>
+    <button id="btnClear" class="btn btn-ghost btn-danger" title="Delete everything">Clear</button>
+    <button id="btnTheme" class="btn btn-icon" title="Toggle dark mode" aria-label="Toggle dark mode">☾</button>
+  </div>
+  <input type="file" id="fileInput" accept="application/json,.json" hidden>
+</header>
+
+<main class="workspace">
+
+  <aside class="panel sidebar" id="sidebar">
+    <div class="panel-head">
+      <h2>People <span id="peopleCount" class="pill">0</span></h2>
+    </div>
+    <div class="search-wrap">
+      <input id="search" type="search" placeholder="Search name…" aria-label="Search people" spellcheck="false">
+    </div>
+    <ul id="peopleList" class="people-list" role="listbox" aria-label="People in this tree"></ul>
+    <div class="panel-foot">
+      <p class="hint"><b>Drag</b> a card to move · <b>Scroll</b> to zoom · <b>Space-drag</b> or drag empty space to pan · <b>Double-click</b> empty canvas to add someone</p>
+    </div>
+  </aside>
+
+  <div class="canvas-wrap" id="canvasWrap">
+    <canvas id="tree" tabindex="0" aria-label="Family tree canvas"></canvas>
+
+    <div class="empty-state" id="emptyState">
+      <div class="empty-card">
+        <div class="empty-emoji">🌱</div>
+        <h3>Start your family tree</h3>
+        <p>Add the first person, then grow the tree by adding parents, partners and children.</p>
+        <div class="empty-actions">
+          <button class="btn btn-primary" data-act="add">Add first person</button>
+          <button class="btn" data-act="sample">Load demo family</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="zoom-controls">
+      <button class="btn btn-icon" id="btnZoomOut" title="Zoom out" aria-label="Zoom out">−</button>
+      <button class="btn btn-zoom" id="btnZoomReset" title="Reset zoom to 100%">100%</button>
+      <button class="btn btn-icon" id="btnZoomIn" title="Zoom in" aria-label="Zoom in">＋</button>
+    </div>
+
+    <div class="legend">
+      <span><i class="swatch male"></i>Male</span>
+      <span><i class="swatch female"></i>Female</span>
+      <span><i class="swatch other"></i>Other</span>
+      <span><i class="swatch dead"></i>Deceased</span>
+    </div>
+  </div>
+
+  <aside class="panel inspector" id="inspector">
+    <div class="panel-head">
+      <h2 id="inspectorTitle">Details</h2>
+      <button class="btn btn-icon btn-ghost close-inspector" id="btnCloseInspector" aria-label="Close details">✕</button>
+    </div>
+    <div id="inspectorBody" class="inspector-body">
+      <p class="empty-note">Select a person on the canvas to see and edit their details.</p>
+    </div>
+  </aside>
+
+</main>
+
+<div id="contextMenu" class="context-menu" hidden></div>
+
+<div class="modal-backdrop" id="modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-head">
+      <h3 id="modalTitle">Add person</h3>
+      <button class="btn btn-icon" id="modalClose" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-foot" id="modalFoot"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="js/store.js"></script>
+<script src="js/layout.js"></script>
+<script src="js/render.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

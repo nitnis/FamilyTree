@@ -122,6 +122,16 @@ instead, which is what a drag means when nothing can move.
 **✕** in the corner leaves, or `Escape` (once to close an open card, again to
 leave). A shared tree is asked about on the way out, as above.
 
+### Opening scale
+
+A tree is only fitted to the window when it can be read at that size. A wide
+one — 37 people across is nearly 9,000px, which fits a phone only at 3%, where
+a card is five pixels and no text is drawn — opens instead at a readable zoom,
+anchored on the leftmost person of the oldest generation, with **⤢** beside the
+zoom controls to see the whole shape. The anchor is a real card rather than the
+midpoint of the top row, because the oldest generation of a wide tree is often
+spread right across it and its midpoint falls in a gap.
+
 ## Saving to Google Drive
 
 Press **Link to Drive**, give the file a name and paste the link to a file in

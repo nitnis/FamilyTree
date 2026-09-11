@@ -81,11 +81,19 @@
       var c = this.canvas;
       if (!c) return;
       var rect = c.getBoundingClientRect();
+      var prevW = this.width, prevH = this.height;
       this.dpr = window.devicePixelRatio || 1;
       this.width = Math.max(1, Math.round(rect.width));
       this.height = Math.max(1, Math.round(rect.height));
       c.width = Math.round(this.width * this.dpr);
       c.height = Math.round(this.height * this.dpr);
+
+      // Keep whatever was in the middle of the canvas in the middle, so
+      // hiding a panel or resizing the window does not slide the tree away.
+      if (prevW && prevH) {
+        this.view.x += (this.width - prevW) / 2;
+        this.view.y += (this.height - prevH) / 2;
+      }
     },
 
     /* ----------------------------- viewport ----------------------------- */
@@ -127,6 +135,39 @@
       this.view.k = k;
       this.view.x = this.width / 2 - (b.minX + b.w / 2) * k;
       this.view.y = this.height / 2 - (b.minY + b.h / 2) * k;
+    },
+
+    /**
+     * Open at a scale the cards can actually be read at.
+     *
+     * A wide tree cannot fit legibly on any screen — 37 people across is
+     * 8900px, which fits a phone only at 3%, where a card is five pixels and
+     * no text is drawn at all. Rather than open on a blank-looking canvas,
+     * frame the oldest generation at a readable zoom and let Fit show the
+     * whole shape on demand. Returns true when it had to do that.
+     */
+    frame: function (state, minReadable) {
+      if (!state.people.length) return false;
+      var floor = minReadable || 0.6;
+      var b = window.FT.Layout.bounds(state);
+      var pad = 60;
+      var fitK = Math.min((this.width - pad * 2) / Math.max(1, b.w),
+                          (this.height - pad * 2) / Math.max(1, b.h));
+
+      if (fitK >= floor) {
+        this.fit(state);
+        return false;
+      }
+
+      this.view.k = clamp(floor, this.MIN_K, this.MAX_K);
+      // Anchor on a real card, not the midpoint of the row's extent: the
+      // oldest generation can be spread right across a wide tree, and its
+      // midpoint often falls in a gap between people.
+      var start = firstPerson(state);
+      this.view.x = pad - start.x * this.view.k;
+      // Extra room at the top so the first card clears the viewer's title chip.
+      this.view.y = 104 - start.y * this.view.k;
+      return true;
     },
 
     /** Pan so a person is centred, keeping the current zoom. */
@@ -392,6 +433,15 @@
   /* -------------------------------- utils -------------------------------- */
 
   function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+  /** The leftmost person of the oldest generation — where reading starts. */
+  function firstPerson(state) {
+    var best = null;
+    state.people.forEach(function (p) {
+      if (!best || p.y < best.y || (p.y === best.y && p.x < best.x)) best = p;
+    });
+    return best || { x: 0, y: 0 };
+  }
 
   function roundRect(ctx, x, y, w, h, r) {
     r = Math.min(r, w / 2, h / 2);
